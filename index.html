@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EduPass — Smart Attendance Terminal</title>
+
+<!-- QR code reader (needs the app ONLINE). -->
+<script src="https://unpkg.com/html5-qrcode"></script>
+
+<!-- Firebase: the online database that saves attendance. -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+<style>
+  /* =========================================================
+     STYLING — clean professional light theme.
+     ========================================================= */
+  :root {
+    --bg:#f1f5f9; --card:#ffffff; --ink:#1e293b; --soft:#475569; --muted:#94a3b8;
+    --line:#e2e8f0; --brand:#2563eb; --brand-ink:#ffffff;
+    --present:#059669; --absent:#dc2626; --late:#d97706;
+    --medical:#2563eb; --half:#7c3aed; --leave:#64748b;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; padding:20px; }
+  .wrap { max-width:520px; margin:0 auto; }
+
+  .brand { font-size:26px; font-weight:800; letter-spacing:-0.5px; color:var(--ink); }
+  .brand span { color:var(--brand); }
+  .tagline { color:var(--muted); font-size:13px; margin-bottom:22px; }
+  .hidden { display:none; }
+
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:22px; box-shadow:0 1px 3px rgba(15,23,42,0.06); }
+
+  label { display:block; font-size:13px; color:var(--soft); font-weight:600; margin:14px 0 6px; }
+  input, select { width:100%; padding:12px 14px; font-size:15px; background:#fff;
+    color:var(--ink); border:1px solid var(--line); border-radius:10px; }
+  input:focus, select:focus { outline:none; border-color:var(--brand); }
+
+  input.input-error { border-color:var(--absent); background:#fef2f2; }
+  input.input-error:focus { border-color:var(--absent); }
+  .field-msg { display:none; color:var(--absent); font-size:12.5px; font-weight:600; margin-top:6px; }
+  .field-msg.show { display:block; }
+  .field-msg::before { content:"⚠ "; }
+  @keyframes shake { 0%,100%{transform:translateX(0);} 20%{transform:translateX(-5px);}
+    40%{transform:translateX(5px);} 60%{transform:translateX(-4px);} 80%{transform:translateX(4px);} }
+  .shake { animation:shake 0.3s ease; }
+
+  .roles { display:flex; gap:10px; margin-top:6px; }
+  .role { flex:1; padding:14px; text-align:center; cursor:pointer; background:#fff;
+    border:2px solid var(--line); border-radius:10px; font-weight:700; color:var(--soft); }
+  .role.active { border-color:var(--brand); background:#eff6ff; color:var(--brand); }
+
+  button.primary { width:100%; padding:14px; margin-top:20px; border:none; border-radius:10px;
+    font-size:16px; font-weight:700; cursor:pointer; background:var(--brand); color:var(--brand-ink); }
+  button.primary:hover { background:#1d4ed8; }
+
+  .topbar { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+  .back, .logout { background:#fff; border:1px solid var(--line); color:var(--ink);
+    padding:9px 14px; border-radius:9px; font-size:14px; cursor:pointer; }
+  .back:hover, .logout:hover { background:#f8fafc; }
+  .who { color:var(--soft); font-size:14px; font-weight:600; }
+  .logout { margin-left:auto; color:var(--soft); }
+
+  .cloud { font-size:12.5px; color:var(--muted); margin-bottom:14px; font-weight:600; }
+
+  .menu { display:grid; gap:12px; }
+  .tile { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px;
+    cursor:pointer; display:flex; align-items:center; gap:14px;
+    box-shadow:0 1px 3px rgba(15,23,42,0.05); transition:box-shadow .15s, border-color .15s; }
+  .tile:hover { border-color:var(--brand); box-shadow:0 4px 12px rgba(37,99,235,0.12); }
+  .tile .icon { font-size:26px; }
+  .tile .t-title { font-weight:700; font-size:16px; color:var(--ink); }
+  .tile .t-sub { color:var(--muted); font-size:13px; }
+
+  #reader { width:100%; border-radius:14px; overflow:hidden; margin:12px 0; border:1px solid var(--line); }
+  button.scan { width:100%; padding:14px; border:none; border-radius:10px; font-size:16px;
+    font-weight:700; cursor:pointer; margin-bottom:14px; color:#fff; }
+  .start { background:var(--present); } .start:hover { background:#047857; }
+  .stop  { background:var(--absent); }  .stop:hover  { background:#b91c1c; }
+  .msg { text-align:center; font-size:15px; min-height:22px; margin-bottom:14px;
+    color:var(--present); font-weight:600; }
+
+  h2 { font-size:14px; color:var(--muted); font-weight:700; text-transform:uppercase;
+    letter-spacing:.5px; margin:6px 0 12px; }
+
+  /* Section heading bar — the auto-segregation is visible here */
+  .sec-head { display:flex; align-items:center; justify-content:space-between;
+    margin:18px 0 8px; padding-bottom:6px; border-bottom:2px solid var(--line); }
+  .sec-name { font-weight:800; font-size:15px; color:var(--ink); }
+  .sec-count { font-size:12.5px; font-weight:700; color:var(--soft);
+    background:#f1f5f9; padding:3px 10px; border-radius:99px; }
+
+  .row { display:flex; align-items:center; justify-content:space-between; background:var(--card);
+    border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:8px;
+    box-shadow:0 1px 2px rgba(15,23,42,0.04); }
+  .name { font-weight:600; color:var(--ink); }
+  .time { font-size:12px; color:var(--muted); display:block; }
+  .status { font-size:13px; font-weight:700; padding:4px 10px; border-radius:99px; }
+  .s-present{background:#dcfce7;color:var(--present);} .s-absent{background:#fee2e2;color:var(--absent);}
+  .s-late{background:#fef3c7;color:var(--late);} .s-medical{background:#dbeafe;color:var(--medical);}
+  .s-half{background:#ede9fe;color:var(--half);} .s-leave{background:#f1f5f9;color:var(--leave);}
+  .summary { text-align:center; color:var(--soft); font-size:14px; margin-top:16px; font-weight:700;
+    background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px; }
+
+  /* ---- Date picker row on Reports ---- */
+  .daterow { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+  .daterow label { margin:0; white-space:nowrap; }
+  .daterow input { flex:1; padding:9px 12px; }
+  .readonly-note { font-size:12.5px; font-weight:700; color:var(--late);
+    background:#fef3c7; border-radius:8px; padding:8px 12px; margin-bottom:12px; }
+
+  /* ---- Section tabs on the Reports page ---- */
+  .tabs { display:flex; gap:8px; margin-bottom:14px; }
+  .tab { flex:1; padding:10px 4px; text-align:center; cursor:pointer;
+    background:#fff; border:1px solid var(--line); border-radius:9px;
+    font-size:14px; font-weight:700; color:var(--soft); }
+  .tab:hover { border-color:var(--brand); }
+  .tab.active { background:var(--brand); border-color:var(--brand); color:#fff; }
+
+  /* ---- Spreadsheet-style report table ---- */
+  .sheet-wrap { overflow-x:auto; background:#fff; border:1px solid #cbd5e1;
+    border-radius:8px; box-shadow:0 1px 3px rgba(15,23,42,0.06); }
+  table.sheet { border-collapse:collapse; width:100%; font-size:13px; }
+  table.sheet th, table.sheet td {
+    border:1px solid #cbd5e1; padding:8px 10px; text-align:left; white-space:nowrap; }
+  table.sheet thead th {
+    background:#f8fafc; color:var(--soft); font-weight:700;
+    text-transform:uppercase; font-size:11px; letter-spacing:.4px; position:sticky; top:0; }
+  table.sheet tbody tr:nth-child(even) td { background:#fbfcfe; }
+  table.sheet tr.band td {
+    background:#eff6ff; color:var(--brand); font-weight:800; font-size:12px; }
+  table.sheet tr.totals td {
+    background:#f1f5f9; font-weight:800; color:var(--ink); }
+  td.cell-status { font-weight:700; }
+  .c-present{color:var(--present);} .c-absent{color:var(--absent);}
+  .c-late{color:var(--late);}       .c-medical{color:var(--medical);}
+  .c-half{color:var(--half);}       .c-leave{color:var(--leave);}
+
+  .editbtns { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .editbtns button { border:1px solid var(--line); background:#fff; color:var(--soft);
+    font-size:12px; font-weight:600; padding:6px 10px; border-radius:8px; cursor:pointer; }
+  .editbtns button:hover { border-color:var(--brand); color:var(--brand); }
+  .stacked { display:block; }
+  .note { color:var(--muted); font-size:13px; margin-top:14px; line-height:1.5; }
+</style>
+</head>
+
+<body>
+<div class="wrap">
+
+  <!-- ===================== SCREEN: LOGIN ===================== -->
+  <div id="loginScreen" class="screen">
+    <div class="brand">Edu<span>Pass</span></div>
+    <div class="tagline">Smart Attendance Terminal · Grade 8</div>
+    <div class="panel">
+      <label>Username</label>
+      <input id="username" placeholder="Your username" oninput="clearError('username')" />
+      <div class="field-msg" id="usernameMsg">Please enter your username to continue</div>
+      <div id="passwordBlock">
+        <label>Password</label>
+        <input id="password" type="password" placeholder="Your password" oninput="clearError('password')" />
+        <div class="field-msg" id="passwordMsg">Please enter your password to continue</div>
+      </div>
+      <label>I am a...</label>
+      <div class="roles">
+        <div class="role active" id="roleTeacher" onclick="pickRole('teacher')">👩‍🏫 Teacher</div>
+        <div class="role" id="roleStudent" onclick="pickRole('student')">🎓 Student</div>
+      </div>
+      <div id="studentPicker" class="hidden">
+        <label>Which student are you?</label>
+        <select id="studentSelect"></select>
+      </div>
+      <div class="field-msg" id="loginMsg"></div>
+      <button class="primary" id="loginBtn" onclick="login()">Log in</button>
+    </div>
+  </div>
+
+  <!-- ===================== SCREEN: TEACHER DASHBOARD ===================== -->
+  <div id="dashScreen" class="screen hidden">
+    <div class="topbar">
+      <span class="who" id="dashWho"></span>
+      <button class="logout" onclick="logout()">Log out</button>
+    </div>
+    <div class="menu">
+      <div class="tile" onclick="openRecord()">
+        <div class="icon">📷</div>
+        <div><div class="t-title">Record Attendance</div><div class="t-sub">Scan any student, any order</div></div>
+      </div>
+      <div class="tile" onclick="openReports()">
+        <div class="icon">📊</div>
+        <div><div class="t-title">Reports</div><div class="t-sub">Grouped by section</div></div>
+      </div>
+      <div class="tile" onclick="openManual()">
+        <div class="icon">✏️</div>
+        <div><div class="t-title">Manual Edit</div><div class="t-sub">Medical, half day, leave</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== SCREEN: RECORD (scanner) ===================== -->
+  <div id="recordScreen" class="screen hidden">
+    <div class="topbar">
+      <button class="back" onclick="goDash()">← Back</button>
+      <span class="who">Record Attendance</span>
+    </div>
+    <div class="cloud cloudStatus"></div>
+    <div id="reader"></div>
+    <button id="toggle" class="scan start" onclick="toggleScanner()">Start camera</button>
+    <div class="msg" id="msg"></div>
+    <h2>Live report — sorted automatically</h2>
+    <div id="liveReport"></div>
+    <div class="summary" id="liveSummary"></div>
+  </div>
+
+  <!-- ===================== SCREEN: REPORTS ===================== -->
+  <div id="reportsScreen" class="screen hidden">
+    <div class="topbar">
+      <button class="back" onclick="goDash()">← Back</button>
+      <span class="who">Reports</span>
+    </div>
+    <div class="cloud cloudStatus"></div>
+    <h2 id="reportTitle">Grade 8 — today</h2>
+    <div class="daterow">
+      <label for="reportDate">Date</label>
+      <input type="date" id="reportDate" onchange="loadReportDate(this.value)" />
+    </div>
+    <div class="tabs" id="sectionTabs"></div>
+    <div class="sheet-wrap"><table class="sheet" id="reportTable"></table></div>
+    <div class="summary" id="reportSummary"></div>
+    <div class="note" id="gradeNote"></div>
+  </div>
+
+  <!-- ===================== SCREEN: MANUAL EDIT ===================== -->
+  <div id="manualScreen" class="screen hidden">
+    <div class="topbar">
+      <button class="back" onclick="goDash()">← Back</button>
+      <span class="who">Manual Edit</span>
+    </div>
+    <div class="cloud cloudStatus"></div>
+    <h2 id="manualTitle">Tap a status to set it</h2>
+    <div class="tabs" id="manualTabs"></div>
+    <div id="manualList"></div>
+  </div>
+
+  <!-- ===================== SCREEN: STUDENT ===================== -->
+  <div id="studentScreen" class="screen hidden">
+    <div class="topbar">
+      <span class="who" id="studentWho"></span>
+      <button class="logout" onclick="logout()">Log out</button>
+    </div>
+    <h2 id="studentTitle">My attendance</h2>
+    <div class="sheet-wrap"><table class="sheet" id="studentTable"></table></div>
+    <div class="summary" id="studentSummary"></div>
+    <div class="note">Shows every day your section's attendance has been recorded.
+      If something looks wrong, tell your teacher and they can correct it.</div>
+  </div>
+
+</div>
+
+<script>
+/* ============================================================
+   FIREBASE SETUP — connects the app to your online database.
+   ============================================================ */
+const firebaseConfig = {
+  apiKey: "AIzaSyAAyrs5pWaH4qP9Nq07fuCdNybGWNrRtDY",
+  authDomain: "edupass-smart-attendance.firebaseapp.com",
+  projectId: "edupass-smart-attendance",
+  storageBucket: "edupass-smart-attendance.firebasestorage.app",
+  messagingSenderId: "963365935298",
+  appId: "1:963365935298:web:a629870c5161f00349035b"
+};
+
+let db = null, auth = null;
+try {
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  auth = firebase.auth();
+} catch (e) {
+  console.log("Firebase failed to start:", e);
+}
+
+// Teachers type just a username; Firebase needs something
+// email-shaped, so the app quietly adds this behind the scenes.
+const TEACHER_DOMAIN = "@edupass.local";
+
+/* ============================================================
+   THE STUDENTS — the whole grade, each with their section.
+   The QR code only holds the id (e.g. "STU5"); the app looks
+   up which section that student belongs to. That is how
+   scanning in ANY order still sorts correctly.
+   ============================================================ */
+const GRADE = "Grade 8";
+const sections = ["8-A", "8-B", "8-C", "8-D"];
+
+const students = [
+  { id: "STU1", name: "Aarav Sharma", section: "8-A" },
+  { id: "STU2", name: "Diya Patel",   section: "8-A" },
+  { id: "STU3", name: "Rohan Mehta",  section: "8-B" },
+  { id: "STU4", name: "Meera Nair",   section: "8-B" },
+  { id: "STU5", name: "Kabir Singh",  section: "8-C" },
+  { id: "STU6", name: "Ananya Rao",   section: "8-C" },
+  { id: "STU7", name: "Ishaan Verma", section: "8-D" },
+  { id: "STU8", name: "Sara Khan",    section: "8-D" },
+];
+
+const LATE_HOUR = 9, LATE_MINUTE = 0;
+
+const record = {};
+students.forEach(function(s) { record[s.id] = { status: "absent", time: "" }; });
+
+/* ============================================================
+   NAVIGATION
+   ============================================================ */
+function showScreen(id) {
+  if (scanning && scanner) { scanner.stop(); scanning = false; resetScanBtn(); }
+  document.querySelectorAll(".screen").forEach(function(s){ s.classList.add("hidden"); });
+  document.getElementById(id).classList.remove("hidden");
+}
+function goDash()      { showScreen("dashScreen"); }
+function openRecord()  { showScreen("recordScreen"); updateReports(); }
+function openReports() { showScreen("reportsScreen"); updateReports(); }
+function openManual()  { showScreen("manualScreen"); drawManual(); }
+
+/* ============================================================
+   LOGIN
+   ============================================================ */
+let chosenRole = "teacher";
+function pickRole(role) {
+  chosenRole = role;
+  document.getElementById("roleTeacher").classList.toggle("active", role === "teacher");
+  document.getElementById("roleStudent").classList.toggle("active", role === "student");
+  // Only students pick which student they are.
+  document.getElementById("studentPicker").classList.toggle("hidden", role !== "student");
+  // Students don't sign in, so no password is asked for.
+  document.getElementById("passwordBlock").classList.toggle("hidden", role === "student");
+  showLoginMsg("");
+}
+
+// Fill the student dropdown once, when the page loads.
+(function fillStudentPicker() {
+  const sel = document.getElementById("studentSelect");
+  let html = "";
+  students.forEach(function(s) {
+    html += '<option value="' + s.id + '">' + s.name + ' · ' + s.section + '</option>';
+  });
+  sel.innerHTML = html;
+})();
+function flagError(field) {
+  const input = document.getElementById(field);
+  const msg   = document.getElementById(field + "Msg");
+  input.classList.add("input-error"); msg.classList.add("show");
+  input.classList.remove("shake"); void input.offsetWidth; input.classList.add("shake");
+}
+function clearError(field) {
+  document.getElementById(field).classList.remove("input-error");
+  document.getElementById(field + "Msg").classList.remove("show");
+}
+// Show a message under the login button (used for sign-in problems).
+function showLoginMsg(text) {
+  const el = document.getElementById("loginMsg");
+  el.textContent = text;
+  el.classList.toggle("show", !!text);
+}
+function setLoginBusy(busy) {
+  const btn = document.getElementById("loginBtn");
+  btn.disabled = busy;
+  btn.textContent = busy ? "Signing in…" : "Log in";
+}
+
+function login() {
+  const name = document.getElementById("username").value.trim().toLowerCase();
+  const pass = document.getElementById("password").value;
+  let ok = true;
+  if (!name) { flagError("username"); ok = false; }
+  if (chosenRole === "teacher" && !pass) { flagError("password"); ok = false; }
+  if (!ok) return;
+  showLoginMsg("");
+
+  if (chosenRole === "student") {
+    // Students don't need an account — they only read their own records.
+    const sel = document.getElementById("studentSelect");
+    myStudentId = sel.value;
+    const me = students.find(function(s){ return s.id === myStudentId; });
+    document.getElementById("studentWho").textContent = "Hi " + me.name + " · " + me.section;
+    document.getElementById("studentTitle").textContent = me.name + " — attendance history";
+    showScreen("studentScreen");
+    loadStudentHistory();
+    return;
+  }
+
+  // Teachers sign in for real. The username gets the hidden
+  // domain added so Firebase accepts it.
+  if (!auth) { showLoginMsg("Cannot reach the login service — are you online?"); return; }
+  setLoginBusy(true);
+
+  auth.signInWithEmailAndPassword(name + TEACHER_DOMAIN, pass)
+    .then(function() {
+      setLoginBusy(false);
+      document.getElementById("password").value = "";
+      document.getElementById("dashWho").textContent = name + " · " + GRADE;
+      connectGrade();
+      viewDate = todayStr();
+      document.getElementById("reportDate").value = viewDate;
+      showScreen("dashScreen");
+    })
+    .catch(function(err) {
+      setLoginBusy(false);
+      console.log(err.code);
+      if (err.code === "auth/network-request-failed") {
+        showLoginMsg("No internet connection.");
+      } else if (err.code === "auth/too-many-requests") {
+        showLoginMsg("Too many attempts. Please wait a moment and try again.");
+      } else {
+        // Deliberately vague: don't reveal which part was wrong.
+        showLoginMsg("Wrong username or password.");
+      }
+      flagError("username");
+      flagError("password");
+    });
+}
+
+function logout() {
+  if (unsub) { unsub(); unsub = null; }
+  if (auth && auth.currentUser) auth.signOut();
+  document.getElementById("username").value = "";
+  document.getElementById("password").value = "";
+  showLoginMsg("");
+  showScreen("loginScreen");
+}
+
+/* ============================================================
+   STATUS HELPERS
+   ============================================================ */
+function labelFor(status) {
+  const map = { present:["Present","s-present"], late:["Late","s-late"],
+    absent:["Absent","s-absent"], medical:["Medical","s-medical"],
+    half:["Half day","s-half"], leave:["Leave","s-leave"] };
+  return map[status] || map.absent;
+}
+function countsIn(status) { return ["present","late","half","medical"].indexOf(status) !== -1; }
+
+// Give me every student in one section.
+function studentsIn(section) {
+  return students.filter(function(s) { return s.section === section; });
+}
+
+/* ============================================================
+   REPORTS — automatically grouped by section
+   ============================================================ */
+// ---- Card view (used on the scanning screen for quick feedback) ----
+function buildCards() {
+  let html = "", gradeIn = 0;
+  sections.forEach(function(sec) {
+    const group = studentsIn(sec);
+    let secIn = 0, rows = "";
+    group.forEach(function(s) {
+      const r = record[s.id];
+      const parts = labelFor(r.status);
+      if (countsIn(r.status)) { secIn++; gradeIn++; }
+      rows += '<div class="row"><div><span class="name">' + s.name + '</span>' +
+              (r.time ? '<span class="time">Arrived ' + r.time + '</span>' : '') +
+              '</div><span class="status ' + parts[1] + '">' + parts[0] + '</span></div>';
+    });
+    html += '<div class="sec-head"><span class="sec-name">Section ' + sec + '</span>' +
+            '<span class="sec-count">' + secIn + '/' + group.length + ' in</span></div>' + rows;
+  });
+  return { html: html, summary: "Grade 8 total: " + gradeIn + " of " + students.length + " marked in" };
+}
+
+/* ---- Which section the Reports page is currently showing ---- */
+let currentSection = sections[0];   // starts on 8-A
+
+function pickSection(sec) {
+  currentSection = sec;
+  updateReports();
+}
+
+// Draw the row of section tabs, highlighting the chosen one.
+function drawTabs() {
+  const bar = document.getElementById("sectionTabs");
+  if (!bar) return;
+  let html = "";
+  sections.forEach(function(sec) {
+    const active = (sec === currentSection) ? " active" : "";
+    html += '<div class="tab' + active + '" onclick="pickSection(\'' + sec + '\')">' + sec + '</div>';
+  });
+  bar.innerHTML = html;
+}
+
+/* ============================================================
+   WHICH DAY THE REPORTS PAGE IS SHOWING
+   `record` always holds TODAY (that's what scanning and Manual
+   Edit change). When you pick an older date, we fetch that day
+   into `viewRecord` and show it read-only, so today's live
+   attendance is never touched.
+   ============================================================ */
+let viewDate = todayStr();
+let viewRecord = {};
+let myStudentId = "";
+
+function viewingToday() { return viewDate === todayStr(); }
+
+// Which set of data should the table draw from?
+function sourceRecord() { return viewingToday() ? record : viewRecord; }
+
+// Called when the teacher picks a date.
+function loadReportDate(dateStr) {
+  if (!dateStr) return;
+  viewDate = dateStr;
+
+  if (viewingToday()) { updateReports(); return; }
+
+  // An older day — fetch that one document from the cloud.
+  const tbl = document.getElementById("reportTable");
+  if (tbl) tbl.innerHTML = '<tbody><tr><td>Loading…</td></tr></tbody>';
+
+  if (!db) { if (tbl) tbl.innerHTML = '<tbody><tr><td>Offline</td></tr></tbody>'; return; }
+
+  db.collection("attendance").doc("Grade_8_" + dateStr).get()
+    .then(function(snap) {
+      viewRecord = {};
+      const data = snap.exists ? snap.data() : null;
+      students.forEach(function(s) {
+        viewRecord[s.id] = (data && data.records && data.records[s.id])
+          ? data.records[s.id] : { status: "absent", time: "" };
+      });
+      if (!data) viewRecord.__empty = true;   // no attendance taken that day
+      updateReports();
+    })
+    .catch(function(e) {
+      if (tbl) tbl.innerHTML = '<tbody><tr><td>Could not load that day</td></tr></tbody>';
+      console.log(e);
+    });
+}
+
+// ---- Spreadsheet view for ONE section, on the chosen day ----
+function buildTable(sec) {
+  const src = sourceRecord();
+  const group = studentsIn(sec);
+  let body = "", secIn = 0;
+
+  group.forEach(function(s) {
+    const r = src[s.id] || { status: "absent", time: "" };
+    const parts = labelFor(r.status);
+    if (countsIn(r.status)) secIn++;
+    const colour = parts[1].replace("s-", "c-");
+    body += '<tr>' +
+      '<td>' + s.id + '</td>' +
+      '<td>' + s.name + '</td>' +
+      '<td class="cell-status ' + colour + '">' + parts[0] + '</td>' +
+      '<td>' + (r.time || "—") + '</td></tr>';
+  });
+
+  const html =
+    '<thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Time in</th></tr></thead>' +
+    '<tbody>' + body + '</tbody>';
+
+  return { html: html, summary: "Section " + sec + ": " + secIn + " of " + group.length + " marked in" };
+}
+
+// Grade-wide count for the chosen day.
+function gradeTotal() {
+  const src = sourceRecord();
+  let n = 0;
+  students.forEach(function(s) {
+    const r = src[s.id];
+    if (r && countsIn(r.status)) n++;
+  });
+  return n + " of " + students.length + " marked in across all of Grade 8";
+}
+
+function updateReports() {
+  // The live cards on the scanning screen always show TODAY.
+  const cards = buildCards();
+  const live = document.getElementById("liveReport");
+  if (live) live.innerHTML = cards.html;
+  const liveSum = document.getElementById("liveSummary");
+  if (liveSum) liveSum.textContent = cards.summary;
+
+  drawTabs();
+  const table = buildTable(currentSection);
+  const tbl = document.getElementById("reportTable");
+  if (tbl) tbl.innerHTML = table.html;
+  const repSum = document.getElementById("reportSummary");
+  if (repSum) repSum.textContent = table.summary;
+
+  const title = document.getElementById("reportTitle");
+  if (title) {
+    title.textContent = "Section " + currentSection + " — " +
+      (viewingToday() ? "today (" + viewDate + ")" : viewDate);
+  }
+
+  const note = document.getElementById("gradeNote");
+  if (note) {
+    if (!viewingToday() && viewRecord.__empty) {
+      note.textContent = "No attendance was recorded on " + viewDate + ".";
+    } else if (!viewingToday()) {
+      note.textContent = gradeTotal() + " · past day, view only — switch to today's date to make changes.";
+    } else {
+      note.textContent = gradeTotal();
+    }
+  }
+}
+
+/* ============================================================
+   STUDENT HISTORY — one row per day for the logged-in student
+   ============================================================ */
+function loadStudentHistory() {
+  const tbl = document.getElementById("studentTable");
+  const sum = document.getElementById("studentSummary");
+  tbl.innerHTML = '<tbody><tr><td>Loading…</td></tr></tbody>';
+
+  if (!db) { tbl.innerHTML = '<tbody><tr><td>Offline</td></tr></tbody>'; return; }
+
+  // Grab the most recent 30 days that have any attendance saved.
+  db.collection("attendance").orderBy("date", "desc").limit(30).get()
+    .then(function(snapshot) {
+      let body = "", days = 0, inDays = 0;
+
+      snapshot.forEach(function(doc) {
+        const data = doc.data();
+        if (!data.records || !data.records[myStudentId]) return;
+        const r = data.records[myStudentId];
+        const parts = labelFor(r.status);
+        const colour = parts[1].replace("s-", "c-");
+        days++;
+        if (countsIn(r.status)) inDays++;
+        body += '<tr><td>' + (data.date || doc.id) + '</td>' +
+          '<td class="cell-status ' + colour + '">' + parts[0] + '</td>' +
+          '<td>' + (r.time || "—") + '</td></tr>';
+      });
+
+      if (days === 0) {
+        tbl.innerHTML = '<tbody><tr><td>No attendance recorded yet</td></tr></tbody>';
+        sum.textContent = "";
+        return;
+      }
+
+      tbl.innerHTML =
+        '<thead><tr><th>Date</th><th>Status</th><th>Time in</th></tr></thead>' +
+        '<tbody>' + body + '</tbody>';
+
+      const pct = Math.round((inDays / days) * 100);
+      sum.textContent = "Present " + inDays + " of " + days + " days (" + pct + "%)";
+    })
+    .catch(function(e) {
+      tbl.innerHTML = '<tbody><tr><td>Could not load your records</td></tr></tbody>';
+      console.log(e);
+    });
+}
+
+/* ============================================================
+   MANUAL EDIT — also grouped by section
+   ============================================================ */
+/* ---- Which section Manual Edit is showing (its own, separate
+       from the Reports page so the two don't affect each other) ---- */
+let manualSection = sections[0];
+
+function pickManualSection(sec) {
+  manualSection = sec;
+  drawManual();
+}
+
+function drawManualTabs() {
+  const bar = document.getElementById("manualTabs");
+  if (!bar) return;
+  let html = "";
+  sections.forEach(function(sec) {
+    const active = (sec === manualSection) ? " active" : "";
+    html += '<div class="tab' + active + '" onclick="pickManualSection(\'' + sec + '\')">' + sec + '</div>';
+  });
+  bar.innerHTML = html;
+}
+
+function drawManual() {
+  drawManualTabs();
+
+  const title = document.getElementById("manualTitle");
+  if (title) title.textContent = "Section " + manualSection + " — tap a status to set it";
+
+  let html = "";
+  studentsIn(manualSection).forEach(function(s) {
+    const parts = labelFor(record[s.id].status);
+    html += '<div class="row stacked"><div><span class="name">' + s.name + '</span> ' +
+      '<span class="status ' + parts[1] + '">' + parts[0] + '</span><div class="editbtns">' +
+        '<button onclick="setStatus(\'' + s.id + '\',\'present\')">Present</button>' +
+        '<button onclick="setStatus(\'' + s.id + '\',\'absent\')">Absent</button>' +
+        '<button onclick="setStatus(\'' + s.id + '\',\'medical\')">Medical</button>' +
+        '<button onclick="setStatus(\'' + s.id + '\',\'half\')">Half day</button>' +
+        '<button onclick="setStatus(\'' + s.id + '\',\'leave\')">Leave</button>' +
+      '</div></div></div>';
+  });
+  document.getElementById("manualList").innerHTML = html;
+}
+function setStatus(id, status) {
+  record[id].status = status;
+  if (!record[id].time && countsIn(status)) {
+    record[id].time = new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+  }
+  drawManual(); updateReports(); saveRecord();
+}
+
+/* ============================================================
+   CLOUD SAVE / LOAD — one record per day for the whole grade
+   ============================================================ */
+let currentDocId = "", unsub = null;
+
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + "-" +
+    String(d.getMonth()+1).padStart(2,"0") + "-" +
+    String(d.getDate()).padStart(2,"0");
+}
+function setCloud(text) {
+  document.querySelectorAll(".cloudStatus").forEach(function(el){ el.textContent = text; });
+}
+
+function connectGrade() {
+  currentDocId = "Grade_8_" + todayStr();
+  if (unsub) { unsub(); unsub = null; }
+  if (!db) { setCloud("⚠ Offline — attendance won't save"); return; }
+  setCloud("☁ Connecting…");
+
+  unsub = db.collection("attendance").doc(currentDocId).onSnapshot(
+    function(snap) {
+      const data = snap.exists ? snap.data() : null;
+      students.forEach(function(s) {
+        record[s.id] = (data && data.records && data.records[s.id])
+          ? data.records[s.id] : { status: "absent", time: "" };
+      });
+      setCloud("☁ Connected · saves automatically");
+      updateReports();
+      if (!document.getElementById("manualScreen").classList.contains("hidden")) drawManual();
+    },
+    function(err) { setCloud("⚠ Could not reach database (check Firestore rules)"); console.log(err); }
+  );
+}
+
+function saveRecord() {
+  if (!db || !currentDocId) return;
+  setCloud("☁ Saving…");
+  db.collection("attendance").doc(currentDocId).set(
+    { grade: GRADE, date: todayStr(), records: record },
+    { merge: true }
+  ).then(function(){ setCloud("☁ Saved ✓"); })
+   .catch(function(e){ setCloud("⚠ Save failed"); console.log(e); });
+}
+
+/* ============================================================
+   CAMERA / SCANNER — scan any student, any order
+   ============================================================ */
+let scanner = null, scanning = false, cooldown = false;
+const msgEl = document.getElementById("msg");
+
+function resetScanBtn() {
+  const btn = document.getElementById("toggle");
+  btn.textContent = "Start camera"; btn.className = "scan start";
+}
+function onScan(text) {
+  // Look up which student this code belongs to — this is the
+  // step that figures out the section automatically.
+  const student = students.find(function(s) { return s.id === text; });
+  if (!student) { showMsg("Unknown code: " + text, false); return; }
+  if (record[student.id].status !== "absent") {
+    showMsg(student.name + " (" + student.section + ") is already marked", false); return;
+  }
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+  const isLate = (now.getHours() > LATE_HOUR) || (now.getHours() === LATE_HOUR && now.getMinutes() > LATE_MINUTE);
+  record[student.id] = { status: isLate ? "late" : "present", time: timeStr };
+  showMsg("✅ " + student.name + " → Section " + student.section + " · " +
+          (isLate ? "late" : "present"), true);
+  updateReports(); saveRecord();
+}
+function showMsg(text, good) { msgEl.textContent = text; msgEl.style.color = good ? "var(--present)" : "var(--absent)"; }
+function toggleScanner() {
+  const btn = document.getElementById("toggle");
+  if (!scanning) {
+    scanner = new Html5Qrcode("reader");
+    scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: 220 },
+      function(decodedText) {
+        if (cooldown) return; cooldown = true;
+        onScan(decodedText);
+        setTimeout(function(){ cooldown = false; }, 1500);
+      }
+    ).then(function() { scanning = true; btn.textContent = "Stop camera"; btn.className = "scan stop"; })
+     .catch(function() { showMsg("Camera could not start. Are you online & did you allow the camera?", false); });
+  } else {
+    scanner.stop().then(function() { scanning = false; resetScanBtn(); });
+  }
+}
+</script>
+</body>
+</html>
