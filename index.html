@@ -350,10 +350,18 @@ function pickRole(role) {
   });
   sel.innerHTML = html;
 })();
+// Red box + the "please enter…" message — only for EMPTY fields.
 function flagError(field) {
   const input = document.getElementById(field);
   const msg   = document.getElementById(field + "Msg");
   input.classList.add("input-error"); msg.classList.add("show");
+  input.classList.remove("shake"); void input.offsetWidth; input.classList.add("shake");
+}
+// Just the red box + shake, with NO message under the field.
+// Used when the field was filled in but the sign-in was rejected.
+function flagRedOnly(field) {
+  const input = document.getElementById(field);
+  input.classList.add("input-error");
   input.classList.remove("shake"); void input.offsetWidth; input.classList.add("shake");
 }
 function clearError(field) {
@@ -375,11 +383,16 @@ function setLoginBusy(busy) {
 function login() {
   const name = document.getElementById("username").value.trim().toLowerCase();
   const pass = document.getElementById("password").value;
+
+  // Clear any leftover errors from the previous attempt first.
+  clearError("username");
+  clearError("password");
+  showLoginMsg("");
+
   let ok = true;
   if (!name) { flagError("username"); ok = false; }
   if (chosenRole === "teacher" && !pass) { flagError("password"); ok = false; }
   if (!ok) return;
-  showLoginMsg("");
 
   if (chosenRole === "student") {
     // Students don't need an account — they only read their own records.
@@ -419,8 +432,10 @@ function login() {
         // Deliberately vague: don't reveal which part was wrong.
         showLoginMsg("Wrong username or password.");
       }
-      flagError("username");
-      flagError("password");
+      // Both fields were filled but rejected — highlight them red,
+      // but don't show the "please enter…" text (they DID enter something).
+      flagRedOnly("username");
+      flagRedOnly("password");
     });
 }
 
