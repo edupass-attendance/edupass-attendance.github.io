@@ -199,6 +199,10 @@
         <div class="icon">✏️</div>
         <div><div class="t-title">Manual Edit</div><div class="t-sub">Medical, half day, leave</div></div>
       </div>
+      <div class="tile" onclick="openLeave()">
+        <div class="icon">📩</div>
+        <div><div class="t-title">Leave Requests</div><div class="t-sub"><span id="leaveBadge">Student leave approvals</span></div></div>
+      </div>
     </div>
   </div>
 
@@ -247,6 +251,19 @@
     <div id="manualList"></div>
   </div>
 
+  <!-- ===================== SCREEN: LEAVE REQUESTS (teacher) ===================== -->
+  <div id="leaveScreen" class="screen hidden">
+    <div class="topbar">
+      <button class="back" onclick="goDash()">← Back</button>
+      <span class="who">Leave Requests</span>
+    </div>
+    <div class="cloud cloudStatus"></div>
+    <h2>Pending requests</h2>
+    <div id="leavePending"></div>
+    <h2 style="margin-top:22px;">Already decided</h2>
+    <div id="leaveDecided"></div>
+  </div>
+
   <!-- ===================== SCREEN: STUDENT ===================== -->
   <div id="studentScreen" class="screen hidden">
     <div class="topbar">
@@ -256,6 +273,35 @@
     <h2 id="studentTitle">My attendance</h2>
     <div class="sheet-wrap"><table class="sheet" id="studentTable"></table></div>
     <div class="summary" id="studentSummary"></div>
+
+    <h2 style="margin-top:24px;">Request leave</h2>
+    <div class="panel">
+      <div class="roles" style="margin-bottom:4px;">
+        <div class="role active" id="leaveModeSingle" onclick="pickLeaveMode('single')">One day</div>
+        <div class="role" id="leaveModeRange" onclick="pickLeaveMode('range')">Several days</div>
+      </div>
+
+      <div id="singleDateBlock">
+        <label>Date</label>
+        <input type="date" id="leaveFrom1" />
+      </div>
+      <div id="rangeDateBlock" class="hidden">
+        <label>From</label>
+        <input type="date" id="leaveFrom2" />
+        <label>To</label>
+        <input type="date" id="leaveTo2" />
+      </div>
+
+      <label>Reason</label>
+      <textarea id="leaveReason" rows="3" placeholder="e.g. Going to a wedding out of town"
+        style="width:100%; padding:12px 14px; font-size:15px; border:1px solid var(--line);
+        border-radius:10px; resize:vertical; font-family:inherit;"></textarea>
+      <div class="field-msg" id="leaveMsg"></div>
+      <button class="primary" id="leaveSubmitBtn" onclick="submitLeave()">Submit request</button>
+    </div>
+
+    <h2 style="margin-top:22px;">My requests</h2>
+    <div id="myLeaveList"></div>
     <div class="note">Shows every day your section's attendance has been recorded.
       If something looks wrong, tell your teacher and they can correct it.</div>
   </div>
@@ -325,6 +371,7 @@ function goDash()      { showScreen("dashScreen"); }
 function openRecord()  { showScreen("recordScreen"); updateReports(); }
 function openReports() { showScreen("reportsScreen"); updateReports(); }
 function openManual()  { showScreen("manualScreen"); drawManual(); }
+function openLeave()   { showScreen("leaveScreen"); loadLeaveRequests(); }
 
 /* ============================================================
    LOGIN
@@ -403,6 +450,12 @@ function login() {
     document.getElementById("studentTitle").textContent = me.name + " — attendance history";
     showScreen("studentScreen");
     loadStudentHistory();
+    loadMyLeave();
+    // default the leave date fields to today
+    const t = todayStr();
+    document.getElementById("leaveFrom1").value = t;
+    document.getElementById("leaveFrom2").value = t;
+    document.getElementById("leaveTo2").value = t;
     return;
   }
 
@@ -764,6 +817,185 @@ function saveRecord() {
     { merge: true }
   ).then(function(){ setCloud("☁ Saved ✓"); })
    .catch(function(e){ setCloud("⚠ Save failed"); console.log(e); });
+}
+
+/* ============================================================
+   LEAVE REQUESTS
+   Students submit; teachers approve/reject. Saved in Firebase
+   in a "leaveRequests" collection so both sides see them.
+   Approving auto-fills those days as "Leave" in attendance.
+   ============================================================ */
+
+// --- Student: switch between one-day and range ---
+let leaveMode = "single";
+function pickLeaveMode(mode) {
+  leaveMode = mode;
+  document.getElementById("leaveModeSingle").classList.toggle("active", mode === "single");
+  document.getElementById("leaveModeRange").classList.toggle("active", mode === "range");
+  document.getElementById("singleDateBlock").classList.toggle("hidden", mode !== "single");
+  document.getElementById("rangeDateBlock").classList.toggle("hidden", mode !== "range");
+}
+
+function leaveFieldMsg(text) {
+  const el = document.getElementById("leaveMsg");
+  el.textContent = text; el.classList.toggle("show", !!text);
+}
+
+// List every date from `from` to `to` (inclusive) as YYYY-MM-DD strings.
+function datesBetween(from, to) {
+  const out = [];
+  const d = new Date(from + "T00:00:00");
+  const end = new Date(to + "T00:00:00");
+  while (d <= end) {
+    out.push(d.getFullYear() + "-" +
+      String(d.getMonth()+1).padStart(2,"0") + "-" +
+      String(d.getDate()).padStart(2,"0"));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
+// --- Student submits a request ---
+function submitLeave() {
+  const reason = document.getElementById("leaveReason").value.trim();
+  let from, to;
+  if (leaveMode === "single") {
+    from = to = document.getElementById("leaveFrom1").value;
+  } else {
+    from = document.getElementById("leaveFrom2").value;
+    to   = document.getElementById("leaveTo2").value;
+  }
+
+  if (!from || !to) { leaveFieldMsg("Please choose the date(s)."); return; }
+  if (to < from)   { leaveFieldMsg("The 'to' date can't be before the 'from' date."); return; }
+  if (!reason)     { leaveFieldMsg("Please write a reason."); return; }
+  if (!db)         { leaveFieldMsg("Can't reach the server — are you online?"); return; }
+  leaveFieldMsg("");
+
+  const me = students.find(function(s){ return s.id === myStudentId; });
+  const btn = document.getElementById("leaveSubmitBtn");
+  btn.disabled = true; btn.textContent = "Submitting…";
+
+  db.collection("leaveRequests").add({
+    studentId: me.id, studentName: me.name, section: me.section,
+    from: from, to: to, reason: reason,
+    status: "pending", createdAt: Date.now()
+  }).then(function(){
+    btn.disabled = false; btn.textContent = "Submit request";
+    document.getElementById("leaveReason").value = "";
+    leaveFieldMsg("✓ Request sent to your teacher.");
+    loadMyLeave();
+  }).catch(function(e){
+    btn.disabled = false; btn.textContent = "Submit request";
+    leaveFieldMsg("Could not send — please try again.");
+    console.log(e);
+  });
+}
+
+// --- Student sees their own requests ---
+function loadMyLeave() {
+  const box = document.getElementById("myLeaveList");
+  box.innerHTML = '<div class="note">Loading…</div>';
+  if (!db) { box.innerHTML = '<div class="note">Offline</div>'; return; }
+
+  db.collection("leaveRequests").where("studentId", "==", myStudentId).get()
+    .then(function(snap) {
+      const items = [];
+      snap.forEach(function(doc){ items.push(doc.data()); });
+      items.sort(function(a,b){ return b.createdAt - a.createdAt; });
+      if (items.length === 0) { box.innerHTML = '<div class="note">No requests yet.</div>'; return; }
+
+      let html = "";
+      items.forEach(function(r){
+        const when = (r.from === r.to) ? r.from : (r.from + " → " + r.to);
+        const parts = leaveStatusPill(r.status);
+        html += '<div class="row stacked"><div>' +
+          '<span class="name">' + when + '</span> ' +
+          '<span class="status ' + parts[1] + '">' + parts[0] + '</span>' +
+          '<span class="time">' + escapeText(r.reason) + '</span></div></div>';
+      });
+      box.innerHTML = html;
+    })
+    .catch(function(e){ box.innerHTML = '<div class="note">Could not load.</div>'; console.log(e); });
+}
+
+// --- Teacher sees all requests, can approve/reject ---
+function loadLeaveRequests() {
+  const pend = document.getElementById("leavePending");
+  const done = document.getElementById("leaveDecided");
+  pend.innerHTML = '<div class="note">Loading…</div>'; done.innerHTML = "";
+  if (!db) { pend.innerHTML = '<div class="note">Offline</div>'; return; }
+
+  db.collection("leaveRequests").get()
+    .then(function(snap) {
+      const items = [];
+      snap.forEach(function(doc){ const d = doc.data(); d.__id = doc.id; items.push(d); });
+      items.sort(function(a,b){ return b.createdAt - a.createdAt; });
+
+      let pHtml = "", dHtml = "", pCount = 0;
+      items.forEach(function(r){
+        const when = (r.from === r.to) ? r.from : (r.from + " → " + r.to);
+        if (r.status === "pending") {
+          pCount++;
+          pHtml += '<div class="row stacked"><div>' +
+            '<span class="name">' + r.studentName + ' · ' + r.section + '</span>' +
+            '<span class="time"><b>' + when + '</b> — ' + escapeText(r.reason) + '</span>' +
+            '<div class="editbtns">' +
+              '<button onclick="decideLeave(\'' + r.__id + '\',\'approved\')">Approve</button>' +
+              '<button onclick="decideLeave(\'' + r.__id + '\',\'rejected\')">Reject</button>' +
+            '</div></div></div>';
+        } else {
+          const parts = leaveStatusPill(r.status);
+          dHtml += '<div class="row"><div><span class="name">' + r.studentName + ' · ' + r.section +
+            '</span><span class="time">' + when + ' — ' + escapeText(r.reason) + '</span></div>' +
+            '<span class="status ' + parts[1] + '">' + parts[0] + '</span></div>';
+        }
+      });
+
+      pend.innerHTML = pCount ? pHtml : '<div class="note">No pending requests.</div>';
+      done.innerHTML = dHtml || '<div class="note">Nothing decided yet.</div>';
+    })
+    .catch(function(e){ pend.innerHTML = '<div class="note">Could not load.</div>'; console.log(e); });
+}
+
+// --- Teacher approves or rejects one request ---
+function decideLeave(id, decision) {
+  if (!db) return;
+  db.collection("leaveRequests").doc(id).update({ status: decision })
+    .then(function(){
+      if (decision === "approved") {
+        return db.collection("leaveRequests").doc(id).get().then(applyApprovedLeave);
+      }
+    })
+    .then(function(){ loadLeaveRequests(); })
+    .catch(function(e){ console.log(e); });
+}
+
+// --- Auto-fill the approved days as "Leave" in attendance ---
+function applyApprovedLeave(doc) {
+  const r = doc.data();
+  const days = datesBetween(r.from, r.to);
+  // For each day, set this student's status to "leave" in that day's record.
+  const writes = days.map(function(day) {
+    const ref = db.collection("attendance").doc("Grade_8_" + day);
+    const patch = {};
+    patch["records." + r.studentId] = { status: "leave", time: "" };
+    patch["grade"] = GRADE; patch["date"] = day;
+    return ref.set(patch, { merge: true });
+  });
+  return Promise.all(writes);
+}
+
+function leaveStatusPill(status) {
+  if (status === "approved") return ["Approved", "s-present"];
+  if (status === "rejected") return ["Rejected", "s-absent"];
+  return ["Pending", "s-late"];
+}
+
+// Keep student-written text safe to drop into HTML.
+function escapeText(t) {
+  return String(t || "").replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
 /* ============================================================
