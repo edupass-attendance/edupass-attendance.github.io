@@ -171,10 +171,6 @@
         <div class="role active" id="roleTeacher" onclick="pickRole('teacher')">👩‍🏫 Teacher</div>
         <div class="role" id="roleStudent" onclick="pickRole('student')">🎓 Student</div>
       </div>
-      <div id="studentPicker" class="hidden">
-        <label>Which student are you?</label>
-        <select id="studentSelect"></select>
-      </div>
       <div class="field-msg" id="loginMsg"></div>
       <button class="primary" id="loginBtn" onclick="login()">Log in</button>
     </div>
@@ -344,14 +340,14 @@ const GRADE = "Grade 8";
 const sections = ["8-A", "8-B", "8-C", "8-D"];
 
 const students = [
-  { id: "STU1", name: "Aarav Sharma", section: "8-A" },
-  { id: "STU2", name: "Diya Patel",   section: "8-A" },
-  { id: "STU3", name: "Rohan Mehta",  section: "8-B" },
-  { id: "STU4", name: "Meera Nair",   section: "8-B" },
-  { id: "STU5", name: "Kabir Singh",  section: "8-C" },
-  { id: "STU6", name: "Ananya Rao",   section: "8-C" },
-  { id: "STU7", name: "Ishaan Verma", section: "8-D" },
-  { id: "STU8", name: "Sara Khan",    section: "8-D" },
+  { id: "STU1", name: "Aarav Sharma", section: "8-A", username: "aaravsharma" },
+  { id: "STU2", name: "Diya Patel",   section: "8-A", username: "diyapatel"   },
+  { id: "STU3", name: "Rohan Mehta",  section: "8-B", username: "rohanmehta"  },
+  { id: "STU4", name: "Meera Nair",   section: "8-B", username: "meeranair"   },
+  { id: "STU5", name: "Kabir Singh",  section: "8-C", username: "kabirsingh"  },
+  { id: "STU6", name: "Ananya Rao",   section: "8-C", username: "ananyarao"   },
+  { id: "STU7", name: "Ishaan Verma", section: "8-D", username: "ishaanverma" },
+  { id: "STU8", name: "Sara Khan",    section: "8-D", username: "sarakhan"    },
 ];
 
 const LATE_HOUR = 9, LATE_MINUTE = 0;
@@ -381,22 +377,14 @@ function pickRole(role) {
   chosenRole = role;
   document.getElementById("roleTeacher").classList.toggle("active", role === "teacher");
   document.getElementById("roleStudent").classList.toggle("active", role === "student");
-  // Only students pick which student they are.
-  document.getElementById("studentPicker").classList.toggle("hidden", role !== "student");
-  // Students don't sign in, so no password is asked for.
+  // Students don't sign in with a password — they type their username only.
   document.getElementById("passwordBlock").classList.toggle("hidden", role === "student");
+  document.getElementById("username").placeholder =
+    (role === "student") ? "e.g. aaravsharma" : "Your username";
   showLoginMsg("");
+  clearError("username");
 }
 
-// Fill the student dropdown once, when the page loads.
-(function fillStudentPicker() {
-  const sel = document.getElementById("studentSelect");
-  let html = "";
-  students.forEach(function(s) {
-    html += '<option value="' + s.id + '">' + s.name + ' · ' + s.section + '</option>';
-  });
-  sel.innerHTML = html;
-})();
 // Red box + the "please enter…" message — only for EMPTY fields.
 function flagError(field) {
   const input = document.getElementById(field);
@@ -442,10 +430,14 @@ function login() {
   if (!ok) return;
 
   if (chosenRole === "student") {
-    // Students don't need an account — they only read their own records.
-    const sel = document.getElementById("studentSelect");
-    myStudentId = sel.value;
-    const me = students.find(function(s){ return s.id === myStudentId; });
+    // Students identify by username (name + number), no password.
+    const me = students.find(function(s){ return s.username === name; });
+    if (!me) {
+      showLoginMsg("No student found with that username. Check the spelling and number.");
+      flagRedOnly("username");
+      return;
+    }
+    myStudentId = me.id;
     document.getElementById("studentWho").textContent = "Hi " + me.name + " · " + me.section;
     document.getElementById("studentTitle").textContent = me.name + " — attendance history";
     showScreen("studentScreen");
