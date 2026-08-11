@@ -380,7 +380,7 @@ function pickRole(role) {
   // Students don't sign in with a password — they type their username only.
   document.getElementById("passwordBlock").classList.toggle("hidden", role === "student");
   document.getElementById("username").placeholder =
-    (role === "student") ? "e.g. aaravsharma" : "Your username";
+    (role === "student") ? "Your username" : "Your username";
   showLoginMsg("");
   clearError("username");
 }
