@@ -808,7 +808,8 @@ function todayStr() {
     String(d.getDate()).padStart(2,"0");
 }
 function setCloud(text) {
-  document.querySelectorAll(".cloudStatus").forEach(function(el){ el.textContent = text; });
+  // Cloud status messages are hidden from the user.
+  // (Saving still happens; we just don't display "Connected / Saved".)
 }
 
 function connectGrade() {
