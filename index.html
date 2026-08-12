@@ -153,11 +153,36 @@
 <body>
 <div class="wrap">
 
-  <!-- ===================== SCREEN: LOGIN ===================== -->
-  <div id="loginScreen" class="screen">
+  <!-- ===================== SCREEN: ROLE SELECT ===================== -->
+  <div id="roleScreen" class="screen">
     <div class="brand">Edu<span>Pass</span></div>
     <div class="tagline">Smart Attendance Terminal · Grade 8</div>
     <div class="panel">
+      <label>I am a...</label>
+      <div class="menu" style="margin-top:6px;">
+        <div class="tile" onclick="chooseRole('teacher')">
+          <div class="icon">👩‍🏫</div>
+          <div><div class="t-title">Teacher</div>
+            <div class="t-sub">Take attendance, view reports, approve leave</div></div>
+        </div>
+        <div class="tile" onclick="chooseRole('student')">
+          <div class="icon">🎓</div>
+          <div><div class="t-title">Student</div>
+            <div class="t-sub">See your attendance, request leave</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== SCREEN: LOGIN (credentials) ===================== -->
+  <div id="loginScreen" class="screen hidden">
+    <div class="brand">Edu<span>Pass</span></div>
+    <div class="tagline">Smart Attendance Terminal · Grade 8</div>
+    <div class="panel">
+      <div class="topbar" style="margin-bottom:14px;">
+        <button class="back" onclick="backToRole()">← Back</button>
+        <span class="who" id="loginRoleLabel"></span>
+      </div>
       <label>Username</label>
       <input id="username" placeholder="Your username" oninput="clearError('username')" />
       <div class="field-msg" id="usernameMsg">Please enter your username to continue</div>
@@ -165,11 +190,6 @@
         <label>Password</label>
         <input id="password" type="password" placeholder="Your password" oninput="clearError('password')" />
         <div class="field-msg" id="passwordMsg">Please enter your password to continue</div>
-      </div>
-      <label>I am a...</label>
-      <div class="roles">
-        <div class="role active" id="roleTeacher" onclick="pickRole('teacher')">👩‍🏫 Teacher</div>
-        <div class="role" id="roleStudent" onclick="pickRole('student')">🎓 Student</div>
       </div>
       <div class="field-msg" id="loginMsg"></div>
       <button class="primary" id="loginBtn" onclick="login()">Log in</button>
@@ -373,16 +393,27 @@ function openLeave()   { showScreen("leaveScreen"); loadLeaveRequests(); }
    LOGIN
    ============================================================ */
 let chosenRole = "teacher";
-function pickRole(role) {
+
+// Step 1: pick a role, then move to the credentials screen.
+function chooseRole(role) {
   chosenRole = role;
-  document.getElementById("roleTeacher").classList.toggle("active", role === "teacher");
-  document.getElementById("roleStudent").classList.toggle("active", role === "student");
-  // Students don't sign in with a password — they type their username only.
+  // Students type a username only; teachers also need a password.
   document.getElementById("passwordBlock").classList.toggle("hidden", role === "student");
-  document.getElementById("username").placeholder =
-    (role === "student") ? "Your username" : "Your username";
-  showLoginMsg("");
+  document.getElementById("loginRoleLabel").textContent =
+    (role === "teacher") ? "👩‍🏫 Teacher login" : "🎓 Student login";
+  // fresh, empty fields each time
+  document.getElementById("username").value = "";
+  document.getElementById("password").value = "";
   clearError("username");
+  clearError("password");
+  showLoginMsg("");
+  showScreen("loginScreen");
+  document.getElementById("username").focus();
+}
+
+// Back button on the credentials screen → return to role choice.
+function backToRole() {
+  showScreen("roleScreen");
 }
 
 // Red box + the "please enter…" message — only for EMPTY fields.
@@ -490,7 +521,7 @@ function logout() {
   document.getElementById("username").value = "";
   document.getElementById("password").value = "";
   showLoginMsg("");
-  showScreen("loginScreen");
+  showScreen("roleScreen");
 }
 
 /* ============================================================
