@@ -219,6 +219,10 @@
         <div class="icon">📩</div>
         <div><div class="t-title">Leave Requests</div><div class="t-sub"><span id="leaveBadge">Student leave approvals</span></div></div>
       </div>
+      <div class="tile" onclick="openSummary()">
+        <div class="icon">🤖</div>
+        <div><div class="t-title">AI Daily Summary</div><div class="t-sub">Smart overview of today</div></div>
+      </div>
     </div>
   </div>
 
@@ -278,6 +282,22 @@
     <div id="leavePending"></div>
     <h2 style="margin-top:22px;">Already decided</h2>
     <div id="leaveDecided"></div>
+  </div>
+
+  <!-- ===================== SCREEN: AI DAILY SUMMARY ===================== -->
+  <div id="summaryScreen" class="screen hidden">
+    <div class="topbar">
+      <button class="back" onclick="goDash()">← Back</button>
+      <span class="who">AI Daily Summary</span>
+    </div>
+    <div class="panel">
+      <div id="summaryDate" style="color:var(--muted); font-size:13px; margin-bottom:12px;"></div>
+      <div id="summaryText" style="font-size:15px; line-height:1.6;"></div>
+      <button class="primary" id="summaryBtn" onclick="generateSummary()"
+        style="margin-top:18px;">Generate summary</button>
+    </div>
+    <div class="note">This summary is generated from today's attendance data on your
+      device — it highlights what stands out so you don't have to read every row.</div>
   </div>
 
   <!-- ===================== SCREEN: STUDENT ===================== -->
@@ -388,6 +408,12 @@ function openRecord()  { showScreen("recordScreen"); updateReports(); }
 function openReports() { showScreen("reportsScreen"); updateReports(); }
 function openManual()  { showScreen("manualScreen"); drawManual(); }
 function openLeave()   { showScreen("leaveScreen"); loadLeaveRequests(); }
+function openSummary() {
+  showScreen("summaryScreen");
+  document.getElementById("summaryText").innerHTML =
+    '<span style="color:var(--muted);">Tap "Generate summary" to see today\'s overview.</span>';
+  document.getElementById("summaryDate").textContent = "Today · " + todayStr();
+}
 
 /* ============================================================
    LOGIN
@@ -1020,6 +1046,102 @@ function leaveStatusPill(status) {
 function escapeText(t) {
   return String(t || "").replace(/&/g,"&amp;").replace(/</g,"&lt;")
     .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+/* ============================================================
+   AI DAILY SUMMARY
+   Reads today's attendance (already in `record`) and writes a
+   short, plain-English overview, highlighting what stands out:
+   overall numbers, any fully-absent section, low sections, and
+   who is on leave. Runs entirely on the device — no data leaves.
+   ============================================================ */
+function generateSummary() {
+  const btn = document.getElementById("summaryBtn");
+  const out = document.getElementById("summaryText");
+
+  // A tiny "thinking" moment so it feels considered.
+  btn.disabled = true; btn.textContent = "Thinking…";
+  out.innerHTML = '<span style="color:var(--muted);">Analysing today\'s attendance…</span>';
+
+  setTimeout(function() {
+    out.innerHTML = buildSummaryText();
+    btn.disabled = false; btn.textContent = "Regenerate";
+  }, 700);
+}
+
+function buildSummaryText() {
+  // Tally the whole grade and each section.
+  let totalIn = 0, totalAbsent = 0, onLeave = [];
+  const secStats = {};
+
+  sections.forEach(function(sec){ secStats[sec] = { in: 0, total: 0, absent: 0 }; });
+
+  students.forEach(function(s) {
+    const st = record[s.id].status;
+    secStats[s.section].total++;
+    if (countsIn(st)) { totalIn++; secStats[s.section].in++; }
+    else { totalAbsent++; secStats[s.section].absent++; }
+    if (st === "leave" || st === "medical") onLeave.push(s.name + " (" + s.section + ")");
+  });
+
+  const total = students.length;
+  const pct = Math.round((totalIn / total) * 100);
+
+  // Build the sentences.
+  const lines = [];
+
+  // 1) Headline
+  let mood = "a normal day";
+  if (pct >= 90) mood = "a strong turnout";
+  else if (pct < 60) mood = "a low turnout — worth a closer look";
+  lines.push("<b>Today, " + todayStr() + "</b> — " + totalIn + " of " + total +
+             " students are marked in (" + pct + "%), " + mood + ".");
+
+  // 2) Fully-absent sections stand out
+  const emptySecs = sections.filter(function(sec){ return secStats[sec].in === 0 && secStats[sec].total > 0; });
+  if (emptySecs.length) {
+    lines.push("⚠️ <b>" + emptySecs.join(", ") + "</b> " +
+      (emptySecs.length === 1 ? "has" : "have") +
+      " nobody marked in yet — unusual, and worth checking.");
+  }
+
+  // 3) Low sections (some in, but under half)
+  const lowSecs = sections.filter(function(sec){
+    const st = secStats[sec];
+    return st.in > 0 && (st.in / st.total) < 0.5;
+  });
+  if (lowSecs.length) {
+    lines.push("Attendance is running low in <b>" + lowSecs.join(", ") + "</b> today.");
+  }
+
+  // 4) Best section, if there's a clear standout
+  let best = null, bestPct = -1;
+  sections.forEach(function(sec){
+    const st = secStats[sec];
+    const p = st.total ? st.in / st.total : 0;
+    if (p > bestPct) { bestPct = p; best = sec; }
+  });
+  if (bestPct === 1) {
+    const fullSecs = sections.filter(function(sec){
+      return secStats[sec].total > 0 && secStats[sec].in === secStats[sec].total;
+    });
+    lines.push("✅ Full attendance in <b>" + fullSecs.join(", ") + "</b>.");
+  }
+
+  // 5) Who's on leave / medical
+  if (onLeave.length) {
+    lines.push("On approved leave or medical today: " + onLeave.join(", ") + ".");
+  }
+
+  // 6) A gentle closing note
+  if (totalAbsent === 0) {
+    lines.push("Everyone is accounted for — no absences. 🎉");
+  } else {
+    lines.push(totalAbsent + " student" + (totalAbsent === 1 ? " is" : "s are") +
+      " not marked in yet.");
+  }
+
+  return lines.map(function(l){ return '<p style="margin:0 0 10px;">' + l + '</p>'; }).join("");
 }
 
 /* ============================================================
