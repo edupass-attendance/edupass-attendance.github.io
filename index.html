@@ -147,6 +147,56 @@
   .editbtns button:hover { border-color:var(--brand); color:var(--brand); }
   .stacked { display:block; }
   .note { color:var(--muted); font-size:13px; margin-top:14px; line-height:1.5; }
+
+  /* ---- Floating AI orb (teacher screens only) ---- */
+  #aiOrb {
+    position: fixed;
+    right: 22px; bottom: 22px;
+    width: 60px; height: 60px;
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 999;
+    border: none;
+    padding: 0;
+    display: none;                 /* shown only on teacher screens via JS */
+    /* a slowly rotating multicolour gradient */
+    background: conic-gradient(from 0deg, #2563eb, #7c3aed, #4cc9a4, #f2b134, #2563eb);
+    animation: orbSpin 6s linear infinite, orbFloat 3s ease-in-out infinite;
+    box-shadow: 0 6px 20px rgba(37,99,235,0.45);
+  }
+  #aiOrb::before {                 /* dark inner disc so it reads as a ring/orb */
+    content: "🤖";
+    position: absolute; inset: 6px;
+    border-radius: 50%;
+    background: #0f172a;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    animation: orbSpinBack 6s linear infinite;   /* keep emoji upright */
+  }
+  #aiOrb::after {                  /* soft pulsing halo */
+    content: "";
+    position: absolute; inset: -6px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(124,58,237,0.35), transparent 70%);
+    animation: orbPulse 2.2s ease-in-out infinite;
+    z-index: -1;
+  }
+  #aiOrb:hover { transform: scale(1.08); }
+  #aiOrb:active { transform: scale(0.96); }
+
+  @keyframes orbSpin  { to { transform: rotate(360deg); } }
+  @keyframes orbSpinBack { to { transform: rotate(-360deg); } }
+  @keyframes orbFloat { 0%,100% { margin-top:0; } 50% { margin-top:-6px; } }
+  @keyframes orbPulse { 0%,100% { opacity:.5; transform:scale(1); } 50% { opacity:1; transform:scale(1.25); } }
+
+  /* a tiny label that floats up when the orb is tapped area is hovered */
+  #aiOrbTip {
+    position: fixed; right: 90px; bottom: 38px; z-index: 999;
+    background: #0f172a; color:#fff; font-size:12px; font-weight:600;
+    padding:6px 10px; border-radius:8px; opacity:0; pointer-events:none;
+    transition: opacity .2s; white-space:nowrap; display:none;
+  }
+  #aiOrb:hover + #aiOrbTip { opacity:1; }
 </style>
 </head>
 
@@ -218,10 +268,6 @@
       <div class="tile" onclick="openLeave()">
         <div class="icon">📩</div>
         <div><div class="t-title">Leave Requests</div><div class="t-sub"><span id="leaveBadge">Student leave approvals</span></div></div>
-      </div>
-      <div class="tile" onclick="openSummary()">
-        <div class="icon">🤖</div>
-        <div><div class="t-title">AI Daily Summary</div><div class="t-sub">Smart overview of today</div></div>
       </div>
     </div>
   </div>
@@ -402,6 +448,15 @@ function showScreen(id) {
   if (scanning && scanner) { scanner.stop(); scanning = false; resetScanBtn(); }
   document.querySelectorAll(".screen").forEach(function(s){ s.classList.add("hidden"); });
   document.getElementById(id).classList.remove("hidden");
+
+  // Floating AI orb: show on teacher screens, but not on the summary
+  // screen itself (you're already there) or login/student screens.
+  var teacherScreens = ["dashScreen","recordScreen","reportsScreen","manualScreen","leaveScreen"];
+  var showOrb = teacherScreens.indexOf(id) !== -1;
+  var orb = document.getElementById("aiOrb");
+  var tip = document.getElementById("aiOrbTip");
+  if (orb) orb.style.display = showOrb ? "block" : "none";
+  if (tip) tip.style.display = showOrb ? "block" : "none";
 }
 function goDash()      { showScreen("dashScreen"); }
 function openRecord()  { showScreen("recordScreen"); updateReports(); }
@@ -1188,5 +1243,7 @@ function toggleScanner() {
   }
 }
 </script>
+<button id="aiOrb" onclick="openSummary()" aria-label="AI Daily Summary"></button>
+<div id="aiOrbTip">AI Daily Summary</div>
 </body>
 </html>
