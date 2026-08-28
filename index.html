@@ -34,7 +34,7 @@
   .brand span { color:var(--brand); }
   .tagline { color:var(--soft); font-size:13px; margin:6px 0 24px; font-weight:600;
     text-transform:uppercase; letter-spacing:1.5px; }
-  .hidden { display:none; }
+  .hidden { display:none !important; }
 
   .panel { background:var(--card); border:1px solid var(--line); border-radius:20px;
     padding:26px; box-shadow:0 2px 4px rgba(13,21,38,0.04), 0 18px 40px rgba(13,21,38,0.08); }
@@ -201,6 +201,42 @@
   #aiOrb:active { transform: scale(0.96); }
   .orb-label { font-size: 13px; font-weight: 700; color: var(--brand); }
 
+  /* ---- AI Summary pop-up ---- */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(13,21,38,0.45);
+    backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px; animation: fadeIn .18s ease;
+  }
+  .modal-card {
+    background: var(--card); width: 100%; max-width: 440px;
+    border-radius: 22px; padding: 22px 22px 24px;
+    box-shadow: 0 24px 60px rgba(13,21,38,0.35);
+    animation: popIn .22s cubic-bezier(.2,.8,.3,1.1);
+    max-height: 82vh; overflow-y: auto;
+  }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .modal-title { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 850; color: var(--ink); }
+  .modal-orb {
+    width: 26px; height: 26px; border-radius: 50%; display: inline-block; position: relative;
+    background: conic-gradient(from 0deg, #1636c9, #3f63f0, #7449c8, #1636c9);
+    animation: orbSpin 5s linear infinite;
+  }
+  .modal-close {
+    background: #f2f5fc; border: none; width: 34px; height: 34px; border-radius: 10px;
+    font-size: 15px; color: var(--soft); cursor: pointer; font-weight: 700;
+  }
+  .modal-close:hover { background: #e6ebf6; }
+  .modal-date { color: var(--muted); font-size: 12.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .5px; margin: 2px 0 14px; }
+  .modal-body { font-size: 15px; line-height: 1.6; color: var(--ink); }
+  .modal-body p { margin: 0 0 11px; }
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes popIn { from { opacity: 0; transform: translateY(14px) scale(.96); }
+                     to   { opacity: 1; transform: translateY(0) scale(1); } }
+
   @keyframes orbSpin     { to { transform: rotate(360deg); } }
   @keyframes orbSpinBack { to { transform: rotate(-360deg); } }
   @keyframes orbFloat    { 0%,100% { margin-top:0; } 50% { margin-top:-6px; } }
@@ -343,22 +379,6 @@
     <div id="leaveDecided"></div>
   </div>
 
-  <!-- ===================== SCREEN: AI DAILY SUMMARY ===================== -->
-  <div id="summaryScreen" class="screen hidden">
-    <div class="topbar">
-      <button class="back" onclick="goDash()">← Back</button>
-      <span class="who">AI Daily Summary</span>
-    </div>
-    <div class="panel">
-      <div id="summaryDate" style="color:var(--muted); font-size:13px; margin-bottom:12px;"></div>
-      <div id="summaryText" style="font-size:15px; line-height:1.6;"></div>
-      <button class="primary" id="summaryBtn" onclick="generateSummary()"
-        style="margin-top:18px;">Generate summary</button>
-    </div>
-    <div class="note">This summary is generated from today's attendance data on your
-      device — it highlights what stands out so you don't have to read every row.</div>
-  </div>
-
   <!-- ===================== SCREEN: STUDENT ===================== -->
   <div id="studentScreen" class="screen hidden">
     <div class="topbar">
@@ -467,11 +487,24 @@ function openRecord()  { showScreen("recordScreen"); updateReports(); }
 function openReports() { showScreen("reportsScreen"); updateReports(); }
 function openManual()  { showScreen("manualScreen"); drawManual(); }
 function openLeave()   { showScreen("leaveScreen"); loadLeaveRequests(); }
+
+// Open the AI summary pop-up and generate immediately (no button).
 function openSummary() {
-  showScreen("summaryScreen");
-  document.getElementById("summaryText").innerHTML =
-    '<span style="color:var(--muted);">Tap "Generate summary" to see today\'s overview.</span>';
+  const modal = document.getElementById("summaryModal");
+  const out = document.getElementById("summaryText");
   document.getElementById("summaryDate").textContent = "Today · " + todayStr();
+  modal.classList.remove("hidden");
+
+  // brief "thinking" flash, then fill in the summary
+  out.innerHTML = '<p style="color:var(--muted);">Analysing today\'s attendance…</p>';
+  setTimeout(function(){ out.innerHTML = buildSummaryText(); }, 550);
+}
+function closeSummary() {
+  document.getElementById("summaryModal").classList.add("hidden");
+}
+// Close only when the dark backdrop (not the card) is clicked.
+function closeSummaryBackdrop(e) {
+  if (e.target === document.getElementById("summaryModal")) closeSummary();
 }
 
 /* ============================================================
@@ -1114,20 +1147,6 @@ function escapeText(t) {
    overall numbers, any fully-absent section, low sections, and
    who is on leave. Runs entirely on the device — no data leaves.
    ============================================================ */
-function generateSummary() {
-  const btn = document.getElementById("summaryBtn");
-  const out = document.getElementById("summaryText");
-
-  // A tiny "thinking" moment so it feels considered.
-  btn.disabled = true; btn.textContent = "Thinking…";
-  out.innerHTML = '<span style="color:var(--muted);">Analysing today\'s attendance…</span>';
-
-  setTimeout(function() {
-    out.innerHTML = buildSummaryText();
-    btn.disabled = false; btn.textContent = "Regenerate";
-  }, 700);
-}
-
 function buildSummaryText() {
   // Tally the whole grade and each section.
   let totalIn = 0, totalAbsent = 0, onLeave = [];
@@ -1247,5 +1266,16 @@ function toggleScanner() {
   }
 }
 </script>
+<!-- ===================== AI SUMMARY POP-UP ===================== -->
+<div id="summaryModal" class="modal-overlay hidden" onclick="closeSummaryBackdrop(event)">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div class="modal-title"><span class="modal-orb"></span> AI Daily Summary</div>
+      <button class="modal-close" onclick="closeSummary()" aria-label="Close">✕</button>
+    </div>
+    <div id="summaryDate" class="modal-date"></div>
+    <div id="summaryText" class="modal-body"></div>
+  </div>
+</div>
 </body>
 </html>
