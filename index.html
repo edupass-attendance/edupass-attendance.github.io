@@ -507,6 +507,55 @@ function closeSummaryBackdrop(e) {
   if (e.target === document.getElementById("summaryModal")) closeSummary();
 }
 
+// Teacher taps a student in the report → show their month attendance % in the pop-up.
+function showStudentPct(studentId) {
+  const s = students.find(function(x){ return x.id === studentId; });
+  if (!s) return;
+  const modal = document.getElementById("summaryModal");
+  const out = document.getElementById("summaryText");
+  document.getElementById("summaryDate").textContent = s.name + " · " + s.section;
+  modal.classList.remove("hidden");
+  out.innerHTML = '<p style="color:var(--muted);">Calculating attendance…</p>';
+
+  if (!db) { out.innerHTML = '<p>Offline — can\'t load history.</p>'; return; }
+
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth(), lastDay = now.getDate();
+  const monthName = now.toLocaleString([], { month: "long", year: "numeric" });
+
+  db.collection("attendance")
+    .where("date", ">=", ymd(y, m, 1))
+    .where("date", "<=", ymd(y, m, lastDay))
+    .get()
+    .then(function(snapshot) {
+      let recorded = 0, present = 0, late = 0, leaveDays = 0, absent = 0;
+      snapshot.forEach(function(doc) {
+        const data = doc.data();
+        const r = data.records && data.records[studentId];
+        if (!r) return;
+        recorded++;
+        if (r.status === "present") present++;
+        else if (r.status === "late") late++;
+        else if (r.status === "leave" || r.status === "medical" || r.status === "half") leaveDays++;
+        else absent++;
+      });
+      const inDays = present + late + leaveDays;
+      const pct = recorded ? Math.round((inDays / recorded) * 100) : 0;
+
+      let bar = '<div style="height:10px;background:#eef1f8;border-radius:99px;overflow:hidden;margin:8px 0 14px;">' +
+        '<div style="height:100%;width:' + pct + '%;background:linear-gradient(90deg,var(--brand-2),var(--brand));"></div></div>';
+
+      out.innerHTML =
+        '<p style="font-size:30px;font-weight:900;color:var(--brand);margin:0;">' + pct + '%</p>' +
+        '<p style="color:var(--muted);margin:2px 0 0;">attendance in ' + monthName + '</p>' +
+        bar +
+        '<p style="margin:0 0 6px;"><b>' + inDays + '</b> of <b>' + recorded + '</b> recorded days marked in.</p>' +
+        '<p style="margin:0;color:var(--soft);font-size:14px;">Present: ' + present +
+        ' · Late: ' + late + ' · Leave/medical: ' + leaveDays + ' · Absent: ' + absent + '</p>';
+    })
+    .catch(function(e){ out.innerHTML = '<p>Could not load history.</p>'; console.log(e); });
+}
+
 /* ============================================================
    LOGIN
    ============================================================ */
@@ -758,9 +807,9 @@ function buildTable(sec) {
     const parts = labelFor(r.status);
     if (countsIn(r.status)) secIn++;
     const colour = parts[1].replace("s-", "c-");
-    body += '<tr>' +
+    body += '<tr style="cursor:pointer" onclick="showStudentPct(\'' + s.id + '\')">' +
       '<td>' + s.id + '</td>' +
-      '<td>' + s.name + '</td>' +
+      '<td>' + s.name + ' <span style="color:var(--muted);font-size:11px">›</span></td>' +
       '<td class="cell-status ' + colour + '">' + parts[0] + '</td>' +
       '<td>' + (r.time || "—") + '</td></tr>';
   });
@@ -826,41 +875,69 @@ function loadStudentHistory() {
 
   if (!db) { tbl.innerHTML = '<tbody><tr><td>Offline</td></tr></tbody>'; return; }
 
-  // Grab the most recent 30 days that have any attendance saved.
-  db.collection("attendance").orderBy("date", "desc").limit(30).get()
-    .then(function(snapshot) {
-      let body = "", days = 0, inDays = 0;
+  // Work out the current month's range.
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();            // 0-11
+  const monthName = now.toLocaleString([], { month: "long", year: "numeric" });
+  const lastDay = now.getDate();           // only show up to today, not future days
 
+  // Fetch every saved day this month for this student.
+  const firstStr = ymd(year, month, 1);
+  const lastStr  = ymd(year, month, lastDay);
+
+  db.collection("attendance")
+    .where("date", ">=", firstStr)
+    .where("date", "<=", lastStr)
+    .get()
+    .then(function(snapshot) {
+      // Map date -> this student's record, for quick lookup.
+      const byDate = {};
       snapshot.forEach(function(doc) {
         const data = doc.data();
-        if (!data.records || !data.records[myStudentId]) return;
-        const r = data.records[myStudentId];
-        const parts = labelFor(r.status);
-        const colour = parts[1].replace("s-", "c-");
-        days++;
-        if (countsIn(r.status)) inDays++;
-        body += '<tr><td>' + (data.date || doc.id) + '</td>' +
-          '<td class="cell-status ' + colour + '">' + parts[0] + '</td>' +
-          '<td>' + (r.time || "—") + '</td></tr>';
+        if (data.records && data.records[myStudentId]) byDate[data.date] = data.records[myStudentId];
       });
 
-      if (days === 0) {
-        tbl.innerHTML = '<tbody><tr><td>No attendance recorded yet</td></tr></tbody>';
-        sum.textContent = "";
-        return;
+      let body = "", recordedDays = 0, inDays = 0;
+
+      // One row for every calendar day from the 1st up to today.
+      for (let d = 1; d <= lastDay; d++) {
+        const dateStr = ymd(year, month, d);
+        const weekday = new Date(year, month, d).toLocaleDateString([], { weekday: "short" });
+        const r = byDate[dateStr];
+
+        if (r) {
+          const parts = labelFor(r.status);
+          const colour = parts[1].replace("s-", "c-");
+          recordedDays++;
+          if (countsIn(r.status)) inDays++;
+          body += '<tr><td>' + dateStr + ' <span style="color:var(--muted)">' + weekday + '</span></td>' +
+            '<td class="cell-status ' + colour + '">' + parts[0] + '</td>' +
+            '<td>' + (r.time || "—") + '</td></tr>';
+        } else {
+          // No attendance was taken that day.
+          body += '<tr><td>' + dateStr + ' <span style="color:var(--muted)">' + weekday + '</span></td>' +
+            '<td style="color:var(--muted)">No record</td><td>—</td></tr>';
+        }
       }
 
       tbl.innerHTML =
         '<thead><tr><th>Date</th><th>Status</th><th>Time in</th></tr></thead>' +
         '<tbody>' + body + '</tbody>';
 
-      const pct = Math.round((inDays / days) * 100);
-      sum.textContent = "Present " + inDays + " of " + days + " days (" + pct + "%)";
+      const pct = recordedDays ? Math.round((inDays / recordedDays) * 100) : 0;
+      sum.textContent = monthName + " — present " + inDays + " of " +
+        recordedDays + " recorded days (" + pct + "%)";
     })
     .catch(function(e) {
       tbl.innerHTML = '<tbody><tr><td>Could not load your records</td></tr></tbody>';
       console.log(e);
     });
+}
+
+// Helper: build a YYYY-MM-DD string from parts (month is 0-11).
+function ymd(y, m, d) {
+  return y + "-" + String(m + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0");
 }
 
 /* ============================================================
