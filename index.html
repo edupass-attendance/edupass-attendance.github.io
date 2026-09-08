@@ -327,7 +327,7 @@
     <div class="orb-row">
       <div class="orb-wrap">
         <button id="aiOrb" class="orb daily" onclick="openSummary()" aria-label="AI Daily Summary"></button>
-        <div class="orb-label">Daily Summary · all sections</div>
+        <div class="orb-label">Daily Summary</div>
       </div>
     </div>
   </div>
@@ -362,9 +362,12 @@
     <div class="tabs" id="sectionTabs"></div>
     <div class="sheet-wrap"><table class="sheet" id="reportTable"></table></div>
     <div class="summary" id="reportSummary"></div>
-    <button class="primary" id="sectionMonthlyBtn" onclick="openMonthlySummary('section')"
-      style="background:linear-gradient(180deg,#17b07e,#0e7a57); box-shadow:0 8px 20px rgba(14,122,87,0.30);">
-      📈 Monthly AI Summary — this section</button>
+    <div class="orb-row">
+      <div class="orb-wrap">
+        <button class="orb monthly" onclick="openMonthlySummary('section')" aria-label="Monthly Summary for this section"></button>
+        <div class="orb-label">Monthly Summary · this section</div>
+      </div>
+    </div>
     <div class="note" id="gradeNote"></div>
   </div>
 
@@ -402,9 +405,12 @@
     <h2 id="studentTitle">My attendance</h2>
     <div class="sheet-wrap"><table class="sheet" id="studentTable"></table></div>
     <div class="summary" id="studentSummary"></div>
-    <button class="primary" onclick="openMonthlySummary('student')"
-      style="margin-top:14px; background:linear-gradient(180deg,#17b07e,#0e7a57); box-shadow:0 8px 20px rgba(14,122,87,0.30);">
-      📈 My Monthly AI Summary</button>
+    <div class="orb-row">
+      <div class="orb-wrap">
+        <button class="orb monthly" onclick="openMonthlySummary('student')" aria-label="My Monthly Summary"></button>
+        <div class="orb-label">My Monthly Summary</div>
+      </div>
+    </div>
 
     <h2 style="margin-top:24px;">Request leave</h2>
     <div class="panel">
