@@ -166,40 +166,49 @@
   .stacked { display:block; }
   .note { color:var(--muted); font-size:13px; margin-top:14px; line-height:1.5; }
 
-  /* ---- AI orb, centered below the dashboard menu ---- */
+  /* ---- AI orbs, centered below the dashboard menu ---- */
+  .orb-row { display: flex; justify-content: center; gap: 40px; margin-top: 28px; flex-wrap: wrap; }
   .orb-wrap {
-    display: flex; flex-direction: column; align-items: center;
-    gap: 10px; margin-top: 26px;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
   }
-  #aiOrb {
-    width: 66px; height: 66px;
+  .orb {
+    width: 64px; height: 64px;
     border-radius: 50%;
     cursor: pointer; border: none; padding: 0;
     position: relative;
-    background: conic-gradient(from 0deg, #1e4fd8, #3b6ef5, #7c5cbf, #1e4fd8);
     animation: orbSpin 6s linear infinite, orbFloat 3s ease-in-out infinite;
-    box-shadow: 0 8px 22px rgba(30,79,216,0.40);
   }
-  #aiOrb::before {                 /* dark inner disc + robot, kept upright */
-    content: "🤖";
+  .orb.daily {
+    background: conic-gradient(from 0deg, #1636c9, #3f63f0, #7449c8, #1636c9);
+    box-shadow: 0 8px 22px rgba(22,54,201,0.40);
+  }
+  .orb.monthly {
+    background: conic-gradient(from 0deg, #0e7a57, #17b07e, #2a5bea, #0e7a57);
+    box-shadow: 0 8px 22px rgba(14,122,87,0.38);
+    animation-delay: -1.5s, -0.7s;   /* offset so the two don't move in lockstep */
+  }
+  .orb::before {                 /* dark inner disc + icon, kept upright */
     position: absolute; inset: 6px;
     border-radius: 50%;
-    background: #1f2430;
+    background: #12182a;
     display: flex; align-items: center; justify-content: center;
-    font-size: 24px;
+    font-size: 23px;
     animation: orbSpinBack 6s linear infinite;
   }
-  #aiOrb::after {                  /* soft pulsing halo */
+  .orb.daily::before   { content: "🤖"; }
+  .orb.monthly::before { content: "📈"; }
+  .orb::after {                  /* soft pulsing halo */
     content: "";
     position: absolute; inset: -7px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(59,110,245,0.35), transparent 70%);
     animation: orbPulse 2.2s ease-in-out infinite;
     z-index: -1;
   }
-  #aiOrb:hover  { transform: scale(1.06); }
-  #aiOrb:active { transform: scale(0.96); }
-  .orb-label { font-size: 13px; font-weight: 700; color: var(--brand); }
+  .orb.daily::after   { background: radial-gradient(circle, rgba(63,99,240,0.35), transparent 70%); }
+  .orb.monthly::after { background: radial-gradient(circle, rgba(23,176,126,0.35), transparent 70%); }
+  .orb:hover  { transform: scale(1.06); }
+  .orb:active { transform: scale(0.96); }
+  .orb-label { font-size: 13px; font-weight: 800; color: var(--ink); }
 
   /* ---- AI Summary pop-up ---- */
   .modal-overlay {
@@ -315,9 +324,11 @@
       </div>
     </div>
 
-    <div class="orb-wrap">
-      <button id="aiOrb" onclick="openSummary()" aria-label="AI Daily Summary"></button>
-      <div class="orb-label">AI Daily Summary</div>
+    <div class="orb-row">
+      <div class="orb-wrap">
+        <button id="aiOrb" class="orb daily" onclick="openSummary()" aria-label="AI Daily Summary"></button>
+        <div class="orb-label">Daily Summary · all sections</div>
+      </div>
     </div>
   </div>
 
@@ -351,6 +362,9 @@
     <div class="tabs" id="sectionTabs"></div>
     <div class="sheet-wrap"><table class="sheet" id="reportTable"></table></div>
     <div class="summary" id="reportSummary"></div>
+    <button class="primary" id="sectionMonthlyBtn" onclick="openMonthlySummary('section')"
+      style="background:linear-gradient(180deg,#17b07e,#0e7a57); box-shadow:0 8px 20px rgba(14,122,87,0.30);">
+      📈 Monthly AI Summary — this section</button>
     <div class="note" id="gradeNote"></div>
   </div>
 
@@ -388,6 +402,9 @@
     <h2 id="studentTitle">My attendance</h2>
     <div class="sheet-wrap"><table class="sheet" id="studentTable"></table></div>
     <div class="summary" id="studentSummary"></div>
+    <button class="primary" onclick="openMonthlySummary('student')"
+      style="margin-top:14px; background:linear-gradient(180deg,#17b07e,#0e7a57); box-shadow:0 8px 20px rgba(14,122,87,0.30);">
+      📈 My Monthly AI Summary</button>
 
     <h2 style="margin-top:24px;">Request leave</h2>
     <div class="panel">
@@ -507,9 +524,171 @@ function closeSummaryBackdrop(e) {
   if (e.target === document.getElementById("summaryModal")) closeSummary();
 }
 
+/* ============================================================
+   AI MONTHLY SUMMARY — reads the whole current month from the
+   database, then writes a plain-English overview. Teacher view
+   covers the grade and names frequently-absent students;
+   student view covers just their own month.
+   ============================================================ */
+function openMonthlySummary(role) {
+  const modal = document.getElementById("summaryModal");
+  const out = document.getElementById("summaryText");
+  const now = new Date();
+  const monthName = now.toLocaleString([], { month: "long", year: "numeric" });
+  const label = (role === "section")
+    ? "Monthly · Section " + currentSection
+    : "Monthly · " + monthName;
+  document.getElementById("summaryDate").textContent = label;
+  modal.classList.remove("hidden");
+  out.innerHTML = '<p style="color:var(--muted);">Analysing the month\'s attendance…</p>';
+
+  if (!db) { out.innerHTML = '<p>Offline — can\'t load the month.</p>'; return; }
+
+  const y = now.getFullYear(), m = now.getMonth(), lastDay = now.getDate();
+  const schoolDays = schoolDaysSoFar(y, m, lastDay);   // month days minus Sundays
+
+  db.collection("attendance")
+    .where("date", ">=", ymd(y, m, 1))
+    .where("date", "<=", ymd(y, m, lastDay))
+    .get()
+    .then(function(snapshot) {
+      // Collect the month's day-records.
+      const dayDocs = [];
+      snapshot.forEach(function(doc){ const d = doc.data(); if (d.records) dayDocs.push(d); });
+
+      setTimeout(function(){
+        if (role === "student")      out.innerHTML = buildStudentMonthly(dayDocs, monthName, schoolDays);
+        else if (role === "section") out.innerHTML = buildSectionMonthly(dayDocs, monthName, schoolDays, currentSection);
+        else                         out.innerHTML = buildTeacherMonthly(dayDocs, monthName, schoolDays);
+      }, 450);
+    })
+    .catch(function(e){ out.innerHTML = '<p>Could not load the month.</p>'; console.log(e); });
+}
+
+// Count school days in the month up to `lastDay`, excluding Sundays.
+function schoolDaysSoFar(y, m, lastDay) {
+  let n = 0;
+  for (let d = 1; d <= lastDay; d++) {
+    if (new Date(y, m, d).getDay() !== 0) n++;   // 0 = Sunday
+  }
+  return n;
+}
+
+// Tally one student across the month's recorded days.
+function tallyStudent(dayDocs, id) {
+  let inn = 0, present = 0, late = 0, leaveD = 0, absent = 0;
+  dayDocs.forEach(function(d){
+    const r = d.records[id];
+    if (!r) return;
+    if (r.status === "present") { present++; inn++; }
+    else if (r.status === "late") { late++; inn++; }
+    else if (r.status === "leave" || r.status === "medical" || r.status === "half") { leaveD++; inn++; }
+    else absent++;
+  });
+  return { inn:inn, present:present, late:late, leaveD:leaveD, absent:absent };
+}
+
+// TEACHER: grade-wide month overview + frequently-absent students by name.
+// Percentages are out of ALL school days so far (Sundays excluded).
+function buildTeacherMonthly(dayDocs, monthName, schoolDays) {
+  if (schoolDays === 0) return '<p>No school days yet this month.</p>';
+
+  let gradeIn = 0;
+  const perStudent = students.map(function(s){
+    const t = tallyStudent(dayDocs, s.id);
+    gradeIn += t.inn;
+    return { name:s.name, section:s.section, pct: Math.round((t.inn/schoolDays)*100) };
+  });
+  const gradePct = Math.round((gradeIn / (schoolDays * students.length)) * 100);
+
+  // Section averages (out of school days).
+  const secPct = {};
+  sections.forEach(function(sec){
+    let inn = 0; studentsIn(sec).forEach(function(s){ inn += tallyStudent(dayDocs, s.id).inn; });
+    const denom = schoolDays * studentsIn(sec).length;
+    secPct[sec] = denom ? Math.round((inn/denom)*100) : 0;
+  });
+  const rated = sections.slice().sort(function(a,b){ return secPct[b]-secPct[a]; });
+
+  const atRisk = perStudent.filter(function(x){ return x.pct < 75; })
+    .sort(function(a,b){ return a.pct - b.pct; });
+
+  const lines = [];
+  lines.push("<b>" + monthName + "</b> — over <b>" + schoolDays + "</b> school days so far " +
+    "(Sundays excluded), Grade 8 attendance is <b>" + gradePct + "%</b>.");
+  lines.push("Strongest: <b>" + rated[0] + "</b> (" + secPct[rated[0]] + "%). " +
+    "Lowest: <b>" + rated[rated.length-1] + "</b> (" + secPct[rated[rated.length-1]] + "%).");
+  if (atRisk.length) {
+    const names = atRisk.slice(0,6).map(function(x){ return x.name + " (" + x.section + ", " + x.pct + "%)"; }).join(", ");
+    lines.push("⚠️ <b>Frequently absent</b> — worth following up: " + names +
+      (atRisk.length > 6 ? ", and others." : "."));
+  } else {
+    lines.push("✅ Every student is at 75% or above this month.");
+  }
+  return lines.map(function(l){ return '<p>' + l + '</p>'; }).join("");
+}
+
+// SECTION: one section's month overview + its frequently-absent students.
+function buildSectionMonthly(dayDocs, monthName, schoolDays, sec) {
+  if (schoolDays === 0) return '<p>No school days yet this month.</p>';
+  const group = studentsIn(sec);
+
+  let secIn = 0;
+  const perStudent = group.map(function(s){
+    const t = tallyStudent(dayDocs, s.id);
+    secIn += t.inn;
+    return { name:s.name, pct: Math.round((t.inn/schoolDays)*100) };
+  });
+  const secPct = Math.round((secIn / (schoolDays * group.length)) * 100);
+
+  const bar = '<div style="height:10px;background:#eef1f8;border-radius:99px;overflow:hidden;margin:8px 0 14px;">' +
+    '<div style="height:100%;width:' + secPct + '%;background:linear-gradient(90deg,#17b07e,#0e7a57);"></div></div>';
+
+  const atRisk = perStudent.filter(function(x){ return x.pct < 75; }).sort(function(a,b){ return a.pct-b.pct; });
+
+  const lines = [];
+  lines.push('<p style="font-size:30px;font-weight:900;color:#0e7a57;margin:0;">' + secPct + '%</p>');
+  lines.push('<p style="color:var(--muted);margin:2px 0 0;">Section ' + sec + ' · ' + monthName +
+    ' · over ' + schoolDays + ' school days</p>');
+  lines.push(bar);
+  if (atRisk.length) {
+    const names = atRisk.map(function(x){ return x.name + " (" + x.pct + "%)"; }).join(", ");
+    lines.push('<p style="margin:0;">⚠️ <b>Frequently absent:</b> ' + names + '.</p>');
+  } else {
+    lines.push('<p style="margin:0;">✅ Everyone in ' + sec + ' is at 75% or above.</p>');
+  }
+  return lines.join("");
+}
+
+// STUDENT: their own month, out of all school days (Sundays excluded).
+function buildStudentMonthly(dayDocs, monthName, schoolDays) {
+  if (schoolDays === 0) return '<p>No school days yet this month.</p>';
+  const t = tallyStudent(dayDocs, myStudentId);
+  const pct = Math.round((t.inn / schoolDays) * 100);
+
+  const bar = '<div style="height:10px;background:#eef1f8;border-radius:99px;overflow:hidden;margin:8px 0 14px;">' +
+    '<div style="height:100%;width:' + pct + '%;background:linear-gradient(90deg,#17b07e,#0e7a57);"></div></div>';
+
+  let note = "";
+  if (pct >= 90) note = "Excellent — keep it up! 🎉";
+  else if (pct >= 75) note = "Good attendance overall.";
+  else note = "Your attendance is a bit low this month — try not to miss days where you can.";
+
+  const lines = [];
+  lines.push('<p style="font-size:30px;font-weight:900;color:#0e7a57;margin:0;">' + pct + '%</p>');
+  lines.push('<p style="color:var(--muted);margin:2px 0 0;">attendance in ' + monthName +
+    ' · over ' + schoolDays + ' school days</p>');
+  lines.push(bar);
+  lines.push('<p style="margin:0 0 6px;">You were marked in on <b>' + t.inn + '</b> of <b>' + schoolDays + '</b> school days.</p>');
+  if (t.late) lines.push('<p style="margin:0 0 6px;color:var(--soft);font-size:14px;">Late arrivals: ' + t.late + ' — try to arrive on time.</p>');
+  lines.push('<p style="margin:0;color:var(--soft);font-size:14px;">Present: ' + t.present +
+    ' · Late: ' + t.late + ' · Leave/medical: ' + t.leaveD + ' · Absent: ' + t.absent + '</p>');
+  lines.push('<p style="margin:12px 0 0;font-weight:700;color:#0e7a57;">' + note + '</p>');
+  return lines.join("");
+}
+
 // Teacher taps a student in the report → show their month attendance % in the pop-up.
-function showStudentPct(studentId) {
-  const s = students.find(function(x){ return x.id === studentId; });
+function showStudentPct(studentId) {  const s = students.find(function(x){ return x.id === studentId; });
   if (!s) return;
   const modal = document.getElementById("summaryModal");
   const out = document.getElementById("summaryText");
@@ -522,34 +701,34 @@ function showStudentPct(studentId) {
   const now = new Date();
   const y = now.getFullYear(), m = now.getMonth(), lastDay = now.getDate();
   const monthName = now.toLocaleString([], { month: "long", year: "numeric" });
+  const schoolDays = schoolDaysSoFar(y, m, lastDay);
 
   db.collection("attendance")
     .where("date", ">=", ymd(y, m, 1))
     .where("date", "<=", ymd(y, m, lastDay))
     .get()
     .then(function(snapshot) {
-      let recorded = 0, present = 0, late = 0, leaveDays = 0, absent = 0;
+      let present = 0, late = 0, leaveDays = 0, absent = 0;
       snapshot.forEach(function(doc) {
         const data = doc.data();
         const r = data.records && data.records[studentId];
         if (!r) return;
-        recorded++;
         if (r.status === "present") present++;
         else if (r.status === "late") late++;
         else if (r.status === "leave" || r.status === "medical" || r.status === "half") leaveDays++;
         else absent++;
       });
       const inDays = present + late + leaveDays;
-      const pct = recorded ? Math.round((inDays / recorded) * 100) : 0;
+      const pct = schoolDays ? Math.round((inDays / schoolDays) * 100) : 0;
 
       let bar = '<div style="height:10px;background:#eef1f8;border-radius:99px;overflow:hidden;margin:8px 0 14px;">' +
         '<div style="height:100%;width:' + pct + '%;background:linear-gradient(90deg,var(--brand-2),var(--brand));"></div></div>';
 
       out.innerHTML =
         '<p style="font-size:30px;font-weight:900;color:var(--brand);margin:0;">' + pct + '%</p>' +
-        '<p style="color:var(--muted);margin:2px 0 0;">attendance in ' + monthName + '</p>' +
+        '<p style="color:var(--muted);margin:2px 0 0;">attendance in ' + monthName + ' · over ' + schoolDays + ' school days</p>' +
         bar +
-        '<p style="margin:0 0 6px;"><b>' + inDays + '</b> of <b>' + recorded + '</b> recorded days marked in.</p>' +
+        '<p style="margin:0 0 6px;"><b>' + inDays + '</b> of <b>' + schoolDays + '</b> school days marked in.</p>' +
         '<p style="margin:0;color:var(--soft);font-size:14px;">Present: ' + present +
         ' · Late: ' + late + ' · Leave/medical: ' + leaveDays + ' · Absent: ' + absent + '</p>';
     })
